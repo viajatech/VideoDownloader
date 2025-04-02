@@ -1,0 +1,568 @@
+#pip install yt-dlp
+
+
+import os
+import threading
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import yt_dlp
+import subprocess
+import glob
+import time
+
+class VideoDownloaderApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Video Downloader by Viaja Tech")
+        # Aumentamos la altura de la ventana para ver mejor el log
+        self.root.geometry("750x700")
+        self.root.resizable(True, True)
+        
+        # Configure style
+        self.style = ttk.Style()
+        self.style.configure("TButton", font=("Arial", 12))
+        self.style.configure("TLabel", font=("Arial", 12))
+        self.style.configure("Header.TLabel", font=("Arial", 16, "bold"))
+        
+        # Main frame
+        main_frame = ttk.Frame(root, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Header
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=5)
+        
+        header_label = ttk.Label(header_frame, text="Video Downloader by Viaja Tech", 
+                                style="Header.TLabel")
+        header_label.pack(pady=10)
+        
+        # URL input
+        url_frame = ttk.Frame(main_frame)
+        url_frame.pack(fill=tk.X, pady=10)
+        
+        url_label = ttk.Label(url_frame, text="Video/Playlist URL:")
+        url_label.pack(side=tk.LEFT, padx=5)
+        
+        self.url_entry = ttk.Entry(url_frame, width=50, font=("Arial", 12))
+        self.url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.url_entry.focus()
+        
+        # Playlist download checkbox
+        self.playlist_var = tk.BooleanVar(value=False)
+        playlist_check = ttk.Checkbutton(url_frame, text="Descargar lista completa", variable=self.playlist_var)
+        playlist_check.pack(side=tk.RIGHT, padx=5)
+        
+        # Download location
+        location_frame = ttk.Frame(main_frame)
+        location_frame.pack(fill=tk.X, pady=10)
+        
+        location_label = ttk.Label(location_frame, text="Save to:")
+        location_label.pack(side=tk.LEFT, padx=5)
+        
+        self.location_entry = ttk.Entry(location_frame, width=40, font=("Arial", 12))
+        self.location_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.location_entry.insert(0, os.path.expanduser("~/Videos"))
+        
+        browse_button = ttk.Button(location_frame, text="Browse", command=self.browse_location)
+        browse_button.pack(side=tk.RIGHT, padx=5)
+        
+        # Format selection
+        format_frame = ttk.Frame(main_frame)
+        format_frame.pack(fill=tk.X, pady=10)
+        
+        # Format type selection (Video or Audio)
+        self.format_type = tk.StringVar(value="video")
+        
+        format_type_frame = ttk.LabelFrame(format_frame, text="Download Type")
+        format_type_frame.pack(fill=tk.X, pady=5)
+        
+        video_radio = ttk.Radiobutton(format_type_frame, text="Video", variable=self.format_type, 
+                                     value="video", command=self.update_format_options)
+        video_radio.pack(side=tk.LEFT, padx=20, pady=5)
+        
+        audio_radio = ttk.Radiobutton(format_type_frame, text="Audio Only", variable=self.format_type, 
+                                     value="audio", command=self.update_format_options)
+        audio_radio.pack(side=tk.LEFT, padx=20, pady=5)
+        
+        # Video/Audio format options
+        options_frame = ttk.LabelFrame(main_frame, text="Format Options")
+        options_frame.pack(fill=tk.X, pady=10)
+        
+        # Quality selection
+        quality_frame = ttk.Frame(options_frame)
+        quality_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        quality_label = ttk.Label(quality_frame, text="Quality:")
+        quality_label.pack(side=tk.LEFT, padx=5)
+        
+        self.quality_var = tk.StringVar(value="best")
+        self.quality_combobox = ttk.Combobox(quality_frame, textvariable=self.quality_var, width=25)
+        self.quality_combobox.pack(side=tk.LEFT, padx=5, expand=True)
+        
+        # Container/Format selection
+        container_frame = ttk.Frame(options_frame)
+        container_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        self.format_label = ttk.Label(container_frame, text="Format:")
+        self.format_label.pack(side=tk.LEFT, padx=5)
+        
+        self.container_var = tk.StringVar(value="mp4")
+        
+        self.container_combobox = ttk.Combobox(container_frame, textvariable=self.container_var, width=10)
+        self.container_combobox.pack(side=tk.LEFT, padx=5)
+        
+        # Speed option
+        speed_frame = ttk.Frame(options_frame)
+        speed_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        speed_label = ttk.Label(speed_frame, text="Conversion Speed:")
+        speed_label.pack(side=tk.LEFT, padx=5)
+        
+        self.speed_var = tk.StringVar(value="fast")
+        speed_combobox = ttk.Combobox(speed_frame, textvariable=self.speed_var, 
+                                     values=["slow", "medium", "fast", "ultrafast"], width=10)
+        speed_combobox.pack(side=tk.LEFT, padx=5)
+        
+        # Initialize format options
+        self.update_format_options()
+        
+        # Buttons
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.pack(fill=tk.X, pady=20)
+        
+        self.download_button = ttk.Button(buttons_frame, text="Download", command=self.start_download)
+        self.download_button.pack(side=tk.LEFT, padx=5)
+        
+        self.cancel_button = ttk.Button(buttons_frame, text="Cancel", command=self.cancel_download, state=tk.DISABLED)
+        self.cancel_button.pack(side=tk.LEFT, padx=5)
+        
+        self.info_button = ttk.Button(buttons_frame, text="Get Video Info", command=self.get_video_info)
+        self.info_button.pack(side=tk.LEFT, padx=5)
+        
+        # Progress frame
+        progress_frame = ttk.Frame(main_frame)
+        progress_frame.pack(fill=tk.X, pady=10)
+        
+        self.progress_label = ttk.Label(progress_frame, text="")
+        self.progress_label.pack(side=tk.TOP, anchor=tk.W, pady=5)
+        
+        self.progress_bar = ttk.Progressbar(progress_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        self.progress_bar.pack(fill=tk.X, pady=5)
+        
+        # Status log
+        log_frame = ttk.Frame(main_frame)
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        log_label = ttk.Label(log_frame, text="Status:")
+        log_label.pack(anchor=tk.W)
+        
+        log_container = ttk.Frame(log_frame)
+        log_container.pack(fill=tk.BOTH, expand=True)
+        
+        self.log_text = tk.Text(log_container, height=12, width=50, font=("Consolas", 10))
+        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.log_text.config(state=tk.DISABLED)
+        
+        # Scrollbar for log
+        scrollbar = ttk.Scrollbar(log_container, command=self.log_text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.log_text.config(yscrollcommand=scrollbar.set)
+        
+        # Download attributes
+        self.downloading = False
+        self.ydl = None
+        self.download_thread = None
+        self.video_info = None
+        
+        # Check for FFmpeg
+        if not self.check_ffmpeg():
+            self.log_message("WARNING: FFmpeg not found. Please install FFmpeg for full functionality.")
+            messagebox.showwarning("FFmpeg Not Found", 
+                "FFmpeg is not found on your system. Please install FFmpeg for proper video and audio conversion.")
+        
+    def check_ffmpeg(self):
+        """Check if FFmpeg is installed on the system"""
+        try:
+            with open(os.devnull, "w") as devnull:
+                subprocess.call(["ffmpeg", "-version"], stdout=devnull, stderr=devnull)
+            return True
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return False
+        
+    def update_format_options(self):
+        if self.format_type.get() == "video":
+            # Video quality options
+            video_qualities = [
+                "best", 
+                "bestvideo[height>=2160]+bestaudio/best[height>=2160]", # 4K
+                "bestvideo[height>=1440]+bestaudio/best[height>=1440]", # 2K
+                "bestvideo[height>=1080]+bestaudio/best[height>=1080]", # 1080p
+                "bestvideo[height>=720]+bestaudio/best[height>=720]",  # 720p
+                "bestvideo[height>=480]+bestaudio/best[height>=480]",  # 480p
+                "bestvideo[height>=360]+bestaudio/best[height>=360]"   # 360p
+            ]
+            self.quality_combobox['values'] = video_qualities
+            self.quality_var.set("best")
+            
+            # Video container options
+            video_formats = ["mp4", "mkv", "webm", "avi", "mov", "flv"]
+            self.container_combobox['values'] = video_formats
+            self.container_var.set("mp4")
+            
+            self.format_label.config(text="Video Format:")
+        else:
+            # Audio quality options
+            audio_qualities = [
+                "bestaudio", 
+                "bestaudio[abr>=256]", # High quality
+                "bestaudio[abr>=192]", # Medium quality
+                "bestaudio[abr>=128]", # Standard quality
+                "bestaudio[abr>=96]"   # Low quality
+            ]
+            self.quality_combobox['values'] = audio_qualities
+            self.quality_var.set("bestaudio")
+            
+            # Audio container options
+            audio_formats = ["mp3", "m4a", "opus", "wav", "aac", "flac"]
+            self.container_combobox['values'] = audio_formats
+            self.container_var.set("mp3")
+            
+            self.format_label.config(text="Audio Format:")
+        
+    def browse_location(self):
+        directory = filedialog.askdirectory(initialdir=self.location_entry.get())
+        if directory:
+            self.location_entry.delete(0, tk.END)
+            self.location_entry.insert(0, directory)
+    
+    def log_message(self, message):
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.insert(tk.END, f"{message}\n")
+        self.log_text.see(tk.END)
+        self.log_text.config(state=tk.DISABLED)
+        
+    def progress_hook(self, d):
+        if d['status'] == 'downloading':
+            try:
+                percent = d.get('_percent_str', 'N/A')
+                speed = d.get('_speed_str', 'N/A')
+                eta = d.get('_eta_str', 'N/A')
+                
+                progress_text = f"Downloading... {percent} at {speed}, ETA: {eta}"
+                self.root.after(0, lambda: self.update_progress(progress_text, d.get('downloaded_bytes', 0), d.get('total_bytes', 100)))
+            except Exception as e:
+                pass
+        elif d['status'] == 'finished':
+            self.root.after(0, lambda: self.log_message("Download complete. Processing..."))
+    
+    def update_progress(self, text, current, total):
+        self.progress_label.config(text=text)
+        if total > 0:
+            percent = (current / total) * 100
+            self.progress_bar['value'] = percent
+    
+    def get_video_info(self):
+        url = self.url_entry.get().strip()
+        if not url:
+            messagebox.showerror("Error", "Por favor ingresa una URL")
+            return
+            
+        self.progress_label.config(text="Fetching video information...")
+        self.log_message(f"Obteniendo información de: {url}")
+        
+        self.info_button.config(state=tk.DISABLED)
+        self.download_button.config(state=tk.DISABLED)
+        
+        threading.Thread(target=self.fetch_video_info, args=(url,), daemon=True).start()
+        
+    def fetch_video_info(self, url):
+        try:
+            ydl_opts = {'quiet': True, 'no_warnings': True}
+            if not self.playlist_var.get():
+                ydl_opts['noplaylist'] = True
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                self.root.after(0, lambda: self.show_video_info(info))
+        except Exception as e:
+            self.root.after(0, lambda: self.log_message(f"Error al obtener información: {str(e)}"))
+            self.root.after(0, lambda: self.reset_buttons())
+            
+    def show_video_info(self, info):
+        if info:
+            if 'entries' in info:
+                playlist_title = info.get('title', 'Playlist')
+                entries = info.get('entries')
+                self.log_message(f"Playlist: {playlist_title} - {len(entries)} videos encontrados")
+                for idx, entry in enumerate(entries, start=1):
+                    title = entry.get('title', f"Video {idx}")
+                    self.log_message(f"{idx}. {title}")
+            else:
+                title = info.get('title', 'Título desconocido')
+                duration = info.get('duration', 0)
+                minutes, seconds = divmod(duration, 60)
+                self.log_message(f"Título: {title}")
+                self.log_message(f"Duración: {minutes}:{seconds:02d}")
+                video_formats = set()
+                audio_formats = set()
+                max_height = 0
+                for f in info.get('formats', []):
+                    if f.get('height'):
+                        video_formats.add(f"{f.get('height')}p")
+                        if f.get('height') > max_height:
+                            max_height = f.get('height')
+                    elif f.get('format_note') == 'audio only':
+                        acodec = f.get('acodec', 'unknown')
+                        if acodec != 'none':
+                            audio_formats.add(f"{acodec} ({f.get('ext', 'unknown')})")
+                if video_formats:
+                    sorted_video = sorted([int(f.replace('p', '')) for f in video_formats if 'p' in f], reverse=True)
+                    self.log_message(f"Calidades de video disponibles: {', '.join([f'{q}p' for q in sorted_video])}")
+                if audio_formats:
+                    self.log_message(f"Formatos de audio disponibles: {', '.join(audio_formats)}")
+                if max_height >= 2160:
+                    self.log_message("¡Calidad 4K disponible!")
+                elif max_height >= 1440:
+                    self.log_message("¡Calidad 2K disponible!")
+                elif max_height >= 1080:
+                    self.log_message("¡Calidad Full HD disponible!")
+                
+            self.video_info = info
+        
+        self.reset_buttons()
+            
+    def reset_buttons(self):
+        self.info_button.config(state=tk.NORMAL)
+        self.download_button.config(state=tk.NORMAL)
+        self.progress_label.config(text="Ready to download")
+        
+    def start_download(self):
+        url = self.url_entry.get().strip()
+        if not url:
+            messagebox.showerror("Error", "Por favor ingresa una URL")
+            return
+        
+        save_path = self.location_entry.get().strip()
+        if not os.path.isdir(save_path):
+            try:
+                os.makedirs(save_path)
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo crear el directorio: {str(e)}")
+                return
+        
+        quality_option = self.quality_var.get()
+        container_format = self.container_var.get()
+        speed_preset = self.speed_var.get()
+        download_playlist = self.playlist_var.get()
+        
+        self.downloading = True
+        self.download_button.config(state=tk.DISABLED)
+        self.info_button.config(state=tk.DISABLED)
+        self.cancel_button.config(state=tk.NORMAL)
+        self.progress_bar['value'] = 0
+        self.progress_label.config(text="Preparando descarga...")
+        self.log_message(f"Iniciando descarga desde: {url}")
+        if download_playlist:
+            self.log_message("Modo Playlist activado: se descargarán TODOS los videos de la lista.")
+        else:
+            self.log_message(f"Calidad seleccionada: {quality_option}, Formato: {container_format}, Velocidad: {speed_preset}")
+        
+        temp_dir = os.path.join(save_path, f".temp_{int(time.time())}")
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        self.download_thread = threading.Thread(
+            target=self.perform_download, 
+            args=(url, save_path, temp_dir, quality_option, container_format, speed_preset, download_playlist)
+        )
+        self.download_thread.daemon = True
+        self.download_thread.start()
+    
+    def perform_download(self, url, save_path, temp_dir, quality_option, container_format, speed_preset, download_playlist):
+        try:
+            is_audio_only = self.format_type.get() == "audio"
+            output_filename = None
+            
+            ffmpeg_presets = {
+                "slow": "medium",
+                "medium": "fast",
+                "fast": "veryfast",
+                "ultrafast": "ultrafast"
+            }
+            ffmpeg_preset = ffmpeg_presets.get(speed_preset, "fast")
+            
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info_dict = ydl.extract_info(url, download=False)
+                if 'entries' in info_dict:
+                    video_title = info_dict.get('title', 'playlist')
+                else:
+                    video_title = info_dict.get('title', 'video')
+                safe_title = "".join([c if c.isalnum() or c in ' ._-' else '_' for c in video_title])
+            
+            # Si es playlist, incluir el índice de cada video en el nombre de archivo
+            if download_playlist:
+                temp_output = os.path.join(temp_dir, f"{safe_title}_%(playlist_index)s.%(ext)s")
+            else:
+                temp_output = os.path.join(temp_dir, f"{safe_title}.%(ext)s")
+            
+            ydl_opts = {
+                'format': quality_option,
+                'outtmpl': temp_output,
+                'progress_hooks': [self.progress_hook],
+                'quiet': True,
+            }
+            if not download_playlist:
+                ydl_opts['noplaylist'] = True
+            
+            if is_audio_only:
+                self.root.after(0, lambda: self.log_message("Descargando audio..."))
+                audio_codec_map = {
+                    'mp3': 'libmp3lame',
+                    'm4a': 'aac',
+                    'opus': 'libopus',
+                    'wav': 'pcm_s16le',
+                    'aac': 'aac',
+                    'flac': 'flac'
+                }
+                audio_codec = audio_codec_map.get(container_format, 'aac')
+                ydl_opts['format'] = "bestaudio/best"
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': container_format,
+                    'preferredquality': '192',
+                }]
+                ydl_opts['postprocessor_args'] = [
+                    '-c:a', audio_codec,
+                ]
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                self.ydl = ydl
+                ydl.download([url])
+            
+            if is_audio_only:
+                audio_files = glob.glob(os.path.join(temp_dir, f"*{container_format}"))
+                if audio_files:
+                    # Si es playlist, mover todos los archivos descargados
+                    if download_playlist:
+                        for file in audio_files:
+                            dest_file = os.path.join(save_path, os.path.basename(file))
+                            if os.path.exists(dest_file):
+                                os.remove(dest_file)
+                            os.rename(file, dest_file)
+                        output_filename = f"{safe_title} (Playlist)"
+                    else:
+                        temp_file = audio_files[0]
+                        output_filename = os.path.join(save_path, os.path.basename(temp_file))
+                        if os.path.exists(output_filename):
+                            os.remove(output_filename)
+                        os.rename(temp_file, output_filename)
+                else:
+                    raise Exception("No se encontró el archivo de audio descargado")
+            else:
+                video_files = glob.glob(os.path.join(temp_dir, "*.*"))
+                video_files = [f for f in video_files if not f.endswith(('.part', '.ytdl'))]
+                if not video_files:
+                    raise Exception("Fallo al descargar el video")
+                if download_playlist:
+                    # Para playlists, se asume que yt-dlp ya generó archivos con el índice en el nombre
+                    output_filename = f"{safe_title} (Playlist)"
+                else:
+                    source_file = video_files[0]
+                    final_filename = f"{safe_title}.{container_format}"
+                    output_filename = os.path.join(save_path, final_filename)
+                    
+                    self.root.after(0, lambda: self.log_message(f"Convirtiendo a formato {container_format}..."))
+                    self.root.after(0, lambda: self.update_progress("Convirtiendo formato de video...", 50, 100))
+                    
+                    if container_format == 'mp4':
+                        cmd = [
+                            'ffmpeg', '-y', '-i', source_file,
+                            '-c:v', 'libx264', '-preset', ffmpeg_preset,
+                            '-c:a', 'aac', '-b:a', '192k',
+                            '-movflags', '+faststart',
+                            output_filename
+                        ]
+                    elif container_format == 'webm':
+                        cmd = [
+                            'ffmpeg', '-y', '-i', source_file,
+                            '-c:v', 'libvpx-vp9', '-preset', ffmpeg_preset,
+                            '-c:a', 'libopus', '-b:a', '192k',
+                            output_filename
+                        ]
+                    elif container_format == 'mkv':
+                        cmd = [
+                            'ffmpeg', '-y', '-i', source_file,
+                            '-c:v', 'libx264', '-preset', ffmpeg_preset,
+                            '-c:a', 'aac', '-b:a', '192k',
+                            output_filename
+                        ]
+                    else:
+                        cmd = [
+                            'ffmpeg', '-y', '-i', source_file,
+                            '-c:v', 'libx264', '-preset', ffmpeg_preset,
+                            '-c:a', 'aac', '-b:a', '192k',
+                            output_filename
+                        ]
+                    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    
+                    if not os.path.exists(output_filename):
+                        raise Exception(f"Fallo al convertir al formato {container_format}")
+            
+            try:
+                for file in os.listdir(temp_dir):
+                    file_path = os.path.join(temp_dir, file)
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                os.rmdir(temp_dir)
+            except Exception as e:
+                self.root.after(0, lambda: self.log_message(f"Warning de limpieza: {str(e)}"))
+            
+            self.root.after(0, lambda: self.download_complete(True, output_filename))
+        
+        except Exception as e:
+            self.root.after(0, lambda: self.download_complete(False, str(e)))
+    
+    def download_complete(self, success, message):
+        self.downloading = False
+        self.ydl = None
+        
+        self.download_button.config(state=tk.NORMAL)
+        self.info_button.config(state=tk.NORMAL)
+        self.cancel_button.config(state=tk.DISABLED)
+        
+        if success:
+            self.progress_label.config(text="Descarga completada exitosamente!")
+            self.log_message(f"Descarga completada: {os.path.basename(message)}")
+            if messagebox.askyesno("Descarga Completa", "¡Descarga completada! ¿Abrir carpeta contenedora?"):
+                self.open_folder(os.path.dirname(message) if os.path.exists(message) else self.location_entry.get())
+        else:
+            self.progress_label.config(text="Fallo en la descarga")
+            self.log_message(f"Error durante la descarga: {message}")
+            messagebox.showerror("Error de Descarga", f"Fallo al descargar: {message}")
+    
+    def cancel_download(self):
+        if self.downloading:
+            self.log_message("Cancelando descarga...")
+            self.downloading = False
+            if self.ydl:
+                if self.download_thread and self.download_thread.is_alive():
+                    pass
+            self.download_button.config(state=tk.NORMAL)
+            self.info_button.config(state=tk.NORMAL)
+            self.cancel_button.config(state=tk.DISABLED)
+            self.progress_label.config(text="Descarga cancelada")
+    
+    def open_folder(self, folder_path):
+        try:
+            if os.name == 'nt':
+                os.startfile(folder_path)
+            elif os.name == 'posix':
+                subprocess.Popen(['xdg-open', folder_path])
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir la carpeta: {str(e)}")
+
+def main():
+    root = tk.Tk()
+    app = VideoDownloaderApp(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
